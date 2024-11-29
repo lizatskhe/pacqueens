@@ -1,4 +1,18 @@
-# my_team.py
+# baseline_team.py
+# ---------------
+# Licensing Information:  You are free to use or extend these projects for
+# educational purposes provided that (1) you do not distribute or publish
+# solutions, (2) you retain this notice, and (3) you provide clear
+# attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
+#
+# Attribution Information: The Pacman AI projects were developed at UC Berkeley.
+# The core projects and autograders were primarily created by John DeNero
+# (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
+# Student side autograding was added by Brad Miller, Nick Hay, and
+# Pieter Abbeel (pabbeel@cs.berkeley.edu).
+
+
+# baseline_team.py
 # ---------------
 # Licensing Information: Please do not distribute or publish solutions to this
 # project. You are free to use and extend these projects for educational
@@ -7,11 +21,11 @@
 # For more info, see http://inst.eecs.berkeley.edu/~cs188/sp09/pacman.html
 
 import random
-import contest.util as util
+import util
 
-from contest.capture_agents import CaptureAgent
-from contest.game import Directions
-from contest.util import nearest_point
+from capture_agents import CaptureAgent
+from game import Directions
+from util import nearest_point
 
 
 #################
@@ -29,7 +43,7 @@ def create_team(first_index, second_index, is_red,
     As a potentially helpful development aid, this function can take
     additional string-valued keyword arguments ("first" and "second" are
     such arguments in the case of this function), which will come from
-    the --red_opts and --blue_opts command-line arguments to capture.py.
+    the --redOpts and --blueOpts command-line arguments to capture.py.
     For the nightly contest, however, your team will be created without
     any extra arguments, so you should make sure that the default
     behavior is what you want for the nightly contest.
@@ -70,17 +84,17 @@ class ReflexCaptureAgent(CaptureAgent):
 
         food_left = len(self.get_food(game_state).as_list())
 
-        if food_left <= 2:
-            best_dist = 9999
-            best_action = None
-            for action in actions:
-                successor = self.get_successor(game_state, action)
-                pos2 = successor.get_agent_position(self.index)
-                dist = self.get_maze_distance(self.start, pos2)
-                if dist < best_dist:
-                    best_action = action
-                    best_dist = dist
-            return best_action
+        # if food_left <= 2:
+        #     best_dist = 9999
+        #     best_action = None
+        #     for action in actions:
+        #         successor = self.get_successor(game_state, action)
+        #         pos2 = successor.get_agent_position(self.index)
+        #         dist = self.get_maze_distance(self.start, pos2)
+        #         if dist < best_dist:
+        #             best_action = action
+        #             best_dist = dist
+        #     return best_action
 
         return random.choice(best_actions)
 
@@ -131,19 +145,44 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def get_features(self, game_state, action):
         features = util.Counter()
         successor = self.get_successor(game_state, action)
+        my_state = successor.get_agent_state(self.index)
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.getScore(successor)
+        my_pos = successor.get_agent_state(self.index).get_position()
+
+        # features['successor_score'] = self.get_score(successor)
+        features['food_remaining'] = -len(food_list)
 
         # Compute distance to the nearest food
-
         if len(food_list) > 0:  # This should always be True,  but better safe than sorry
-            my_pos = successor.get_agent_state(self.index).get_position()
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
+            avg_distance = sum([self.get_maze_distance(my_pos, food) for food in food_list]) / len(food_list)
             features['distance_to_food'] = min_distance
+            features['avg_distance_to_food'] = avg_distance
+
+
+        capsules_list = self.get_capsules(successor)
+        features['distance_to_capsules'] = 0
+        if len(capsules_list) > 0:
+            min_capsule_distance = min([self.get_maze_distance(my_pos, capsule) for capsule in capsules_list])
+            features['distance_to_capsules'] = min_capsule_distance
+
+        # features['closest_enemy'] = 0
+        if my_state.is_pacman:
+            enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+            dists = [self.get_maze_distance(my_pos, a.get_position()) for a in enemies if a.get_position() is not None]
+            if len(dists) > 0:
+                features['closest_enemy'] = min(dists) + 1
+
         return features
 
     def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1}
+        return {
+            'food_remaining': 100,
+            'distance_to_food': -5,
+            'avg_distance_to_food': -3,
+            'distance_to_capsules': -10,
+            'closest_enemy': 10
+        }
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
@@ -167,10 +206,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
         # Computes distance to invaders we can see
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-        invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
+        invaders = [a for a in enemies if a.is_pacman] # and a.get_position() is not None
         features['num_invaders'] = len(invaders)
         if len(invaders) > 0:
-            dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
+            dists = [
+                self.get_maze_distance(my_pos, a.get_position()) if a.get_position() is not None else 100
+                for a in invaders
+            ]
             features['invader_distance'] = min(dists)
 
         if action == Directions.STOP: features['stop'] = 1
@@ -180,4 +222,10 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         return features
 
     def get_weights(self, game_state, action):
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
+        return {
+            'num_invaders': -1000,
+            'on_defense': 100,
+            'invader_distance': -100,
+            'stop': -100,
+            'reverse': -10,
+        }
