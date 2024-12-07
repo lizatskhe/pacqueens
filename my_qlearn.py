@@ -21,8 +21,8 @@ from contest.util import nearest_point
 # Team creation #
 #################
 # Constants
-NUM_TRAINING = 0
-TRAINING = False
+NUM_TRAINING = 100
+TRAINING = True
 
 def create_team(first_index, second_index, is_red,
                 first='OffensiveReflexAgent', second='DefensiveReflexAgent', num_training=NUM_TRAINING):
@@ -47,101 +47,18 @@ def create_team(first_index, second_index, is_red,
 # Agents #
 ##########
 
-class ReflexCaptureAgent(CaptureAgent):
-    """
-    A base class for reflex agents that choose score-maximizing actions
-    """
-
-    def __init__(self, index, time_for_computing=.1):
-        super().__init__(index, time_for_computing)
-        self.start = None
-
-    def register_initial_state(self, game_state):
-        self.start = game_state.get_agent_position(self.index)
-        CaptureAgent.register_initial_state(self, game_state)
-
-    def choose_action(self, game_state):
-        """
-        Picks among the actions with the highest Q(s,a).
-        """
-        actions = game_state.get_legal_actions(self.index)
-
-        # You can profile your evaluation time by uncommenting these lines
-        # start = time.time()
-        values = [self.evaluate(game_state, a) for a in actions]
-        # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
-
-        max_value = max(values)
-        best_actions = [a for a, v in zip(actions, values) if v == max_value]
-
-        food_left = len(self.get_food(game_state).as_list())
-
-        if food_left <= 2:
-            best_dist = 9999
-            best_action = None
-            for action in actions:
-                successor = self.get_successor(game_state, action)
-                pos2 = successor.get_agent_position(self.index)
-                dist = self.get_maze_distance(self.start, pos2)
-                if dist < best_dist:
-                    best_action = action
-                    best_dist = dist
-            return best_action
-
-        return random.choice(best_actions)
-
-    def get_successor(self, game_state, action):
-        """
-        Finds the next successor which is a grid position (location tuple).
-        """
-        successor = game_state.generate_successor(self.index, action)
-        pos = successor.get_agent_state(self.index).get_position()
-        if pos != nearest_point(pos):
-            # Only half a grid position was covered
-            return successor.generate_successor(self.index, action)
-        else:
-            return successor
-
-    def evaluate(self, game_state, action):
-        """
-        Computes a linear combination of features and feature weights
-        """
-        features = self.get_features(game_state, action)
-        weights = self.get_weights(game_state, action)
-        return features * weights
-
-    def get_features(self, game_state, action):
-        """
-        Returns a counter of features for the state
-        """
-        features = util.Counter()
-        successor = self.get_successor(game_state, action)
-        features['successor_score'] = self.get_score(successor)
-        return features
-
-    def get_weights(self, game_state, action):
-        """
-        Normally, weights do not depend on the game state.  They can be either
-        a counter or a dictionary.
-        """
-        return {'successor_score': 1.0}
-
-
 class OffensiveReflexAgent(CaptureAgent):
     """
     A reflex agent that seeks food.
     """
     def register_initial_state(self, game_state):
-        # For training
-        self.num_training = NUM_TRAINING
-
         # Initialize variables for Q-learning
         if TRAINING:
-            self.epsilon = 0.1
+            self.epsilon = 0.1 # exploration prob
         else:
-            self.epsilon = 0
-        self.alpha = 0.2
-        self.gamma = 0.9
+            self.epsilon = 0.0
+        self.alpha = 0.2 # learning rate
+        self.gamma = 0.8 # discount factor
         # Baseline
         # self.weights = {
         #         'bias': -11.92116534264878,
@@ -150,12 +67,42 @@ class OffensiveReflexAgent(CaptureAgent):
         #         'eaten_food': 20.652138764195286
         #     }
         # A* 
+        # self.weights = {
+        #         'bias': -11.92116534264878,
+        #         'nearby_food': -3.2306176993680276,
+        #         'nearby_ghosts': -16.6612110039328,
+        #         'eaten_food': 22.136254908743442,
+        #         'potential_score': 0
+        #     }
+        
+        # self.weights = {
+        #         'bias': 1.085670484685672,
+        #         'nearby_food': -2.2306176993680276,
+        #         'nearby_ghosts': -0.18412110039328,
+        #         'eaten_food': 9.97036254908743442,
+        #         'potential_score': -0.027287497633888308
+        #     }
+        # tie game
+        # self.weights = {
+        #       'bias': -29.82904387006209, 
+        #       'nearby_food': -2.3801825477847003, 
+        #       'nearby_ghosts': -46.97373717708399, 
+        #       'eaten_food': 14.93656780260376, 
+        #       'potential_score': -0.027287497633888307}
+# {'bias': -40.93889106587985, 
+# 'nearby_food': -2.4489022054894836, 
+# 'nearby_ghosts': -56.176010221494835, 
+# 'eaten_food': 15.141360736007051, 
+# 'potential_score': -0.027287497633888307}
+
+        # wins by 12 points
         self.weights = {
-                'bias': -11.92116534264878,
-                'nearby_food': -3.2306176993680276,
-                'nearby_ghosts': -16.6612110039328,
-                'eaten_food': 22.136254908743442
-            }
+            'bias': -23.052948293761077, 
+            'nearby_food': -2.5866820784438738, 
+            'nearby_ghosts': -39.833652327163065, 
+            'eaten_food': 13.960614824141123, 
+            'potential_score': 102.48722466790315
+        }
 
         # Initialize agent position
         self.start = game_state.get_agent_position(self.index)
@@ -185,25 +132,28 @@ class OffensiveReflexAgent(CaptureAgent):
         where the max is over legal actions.  
         Return 0.0 if at terminal state.
         """
+        q_values = []
         # No legal actions
         actions = game_state.get_legal_actions(self.index)
         if len(actions) == 0:
             return 0.0
-
+        # else:
+        #     for action in actions:
+        #         q_values.append(self.get_q_value(game_state, action))
+        #         return max(q_values)
         # Get best action, given current state
         best_action = self.get_policy(game_state)
         # Get Q value for the best action
         value = self.get_q_value(game_state, best_action)
-
         return value
 
     def get_policy(self, game_state):
         """
-        Compute the best action to take in a state, given Q values. 
+        Compute the best action to take in a state, associated with max Q-value. 
         Return None if at terminal state.
         """
         actions = game_state.get_legal_actions(self.index)
-
+        # actions.remove(Directions.STOP)
         # No legal actions
         if len(actions) == 0:
             return None
@@ -217,9 +167,8 @@ class OffensiveReflexAgent(CaptureAgent):
             # Update best_q_value
             if target_q_value > best_q_value:
                 best_q_value = target_q_value
-
-            # Get best actions
-            best_actions = [k for k, v in action_values.items() if v == best_q_value]
+        # Get best actions
+        best_actions = [k for k, v in action_values.items() if v == best_q_value]
 
         # tie-breaking
         best_action = random.choice(best_actions)
@@ -238,20 +187,6 @@ class OffensiveReflexAgent(CaptureAgent):
         if len(actions) == 0:
             return None
 
-        # Default Reflex Agent decision
-        food_left = len(self.get_food(game_state).as_list())
-        if food_left <= 2:
-            best_dist = 9999
-            best_action = None
-            for action in actions:
-                successor = self.get_successor(game_state, action)
-                pos2 = successor.get_agent_position(self.index)
-                dist = self.get_maze_distance(self.start, pos2)
-                if dist < best_dist:
-                    best_action = action
-                    best_dist = dist
-            return best_action
-
         # Q-Learning decision
         action = None
         # Training
@@ -259,12 +194,12 @@ class OffensiveReflexAgent(CaptureAgent):
             for action in actions:
                 self.update_weights(game_state, action)
         # Determine whether to exploit or explore based on the epsilon value
-        if not util.flip_coin(self.epsilon):
-            # exploit
-            action = self.get_policy(game_state)
-        else:
+        if util.flip_coin(self.epsilon):
             # explore randomly
             action = random.choice(actions)
+        else:
+            # exploit
+            action = self.get_policy(game_state)
         return action
     
     def get_successor(self, game_state, action):
@@ -323,7 +258,11 @@ class OffensiveReflexAgent(CaptureAgent):
         enemies = [game_state.get_agent_state(i) for i in self.get_opponents(game_state)]
         ghost = [position for position in enemies if not position.is_pacman and position.get_position() is not None]
         food = self.get_food(game_state).as_list()
-        min_food_dist = min([self.get_maze_distance(agent_position, f) for f in food])
+        food_dist = [self.get_maze_distance(agent_position, f) for f in food]
+        if len(food_dist) > 0:
+            min_food_dist = min(food_dist)
+        else:
+            min_food_dist = float('inf')
 
         # Penalty for dying
         min_ghost_dist = 0
@@ -372,6 +311,7 @@ class FeaturesExtractor:
         """
         # initialize 
         features = util.Counter()
+
         agent_start = self.agent_instance.start
         agent_state = game_state.get_agent_state(self.agent_instance.index)
         agent_position = game_state.get_agent_position(self.agent_instance.index)
@@ -385,6 +325,10 @@ class FeaturesExtractor:
 
         food = self.agent_instance.get_food(game_state)
         closest_food_dist = self.closest_food((next_x, next_y), food, walls)
+        succesor = self.agent_instance.get_successor(game_state, action)
+        
+        # Potential score feature
+        features['potential_score'] = self.agent_instance.get_score(succesor) - self.agent_instance.get_score(game_state)
 
         # Bias feature
         features["bias"] = 1.0
@@ -400,6 +344,9 @@ class FeaturesExtractor:
         if closest_food_dist is not None:
             features["nearby_food"] = float(closest_food_dist) / (walls.width * walls.height)
         
+        # Normalize features
+        features.divide_all(10.0)
+
         return features
 
     def closest_food(self, pos, food, walls):
@@ -425,13 +372,70 @@ class FeaturesExtractor:
         return None
 
 
-class DefensiveReflexAgent(ReflexCaptureAgent):
+class DefensiveReflexAgent(CaptureAgent):
     """
     A reflex agent that keeps its side Pacman-free. Again,
     this is to give you an idea of what a defensive agent
     could be like.  It is not the best or only way to make
     such an agent.
     """
+    def __init__(self, index, time_for_computing=.1):
+        super().__init__(index, time_for_computing)
+        self.start = None
+
+    def register_initial_state(self, game_state):
+        self.start = game_state.get_agent_position(self.index)
+        CaptureAgent.register_initial_state(self, game_state)
+
+    def choose_action(self, game_state):
+        """
+        Picks among the actions with the highest Q(s,a).
+        """
+        actions = game_state.get_legal_actions(self.index)
+
+        # You can profile your evaluation time by uncommenting these lines
+        # start = time.time()
+        values = [self.evaluate(game_state, a) for a in actions]
+        # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
+
+        max_value = max(values)
+        best_actions = [a for a, v in zip(actions, values) if v == max_value]
+
+        food_left = len(self.get_food(game_state).as_list())
+
+        if food_left <= 2:
+            best_dist = 9999
+            best_action = None
+            for action in actions:
+                successor = self.get_successor(game_state, action)
+                pos2 = successor.get_agent_position(self.index)
+                dist = self.get_maze_distance(self.start, pos2)
+                if dist < best_dist:
+                    best_action = action
+                    best_dist = dist
+            return best_action
+
+        return random.choice(best_actions)
+
+    def get_successor(self, game_state, action):
+        """
+        Finds the next successor which is a grid position (location tuple).
+        """
+        successor = game_state.generate_successor(self.index, action)
+        pos = successor.get_agent_state(self.index).get_position()
+        if pos != nearest_point(pos):
+            # Only half a grid position was covered
+            return successor.generate_successor(self.index, action)
+        else:
+            return successor
+
+    def evaluate(self, game_state, action):
+        """
+        Computes a linear combination of features and feature weights
+        """
+        features = self.get_features(game_state, action)
+        weights = self.get_weights(game_state, action)
+        return features * weights
 
     def get_features(self, game_state, action):
         features = util.Counter()
