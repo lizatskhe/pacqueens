@@ -8,6 +8,22 @@
 
 # Implementation of Approximate Q Learning Agent
 # https://ai.berkeley.edu/reinforcement.html#Q8
+# 
+# Algorithm Overview:
+# We tried to reduce the massive state space by extracing features that are relevant 
+# to the game, then performing updates on the weights of those features, and finally
+# sum features*weights to make decisions on the best action to take.
+# 
+# We only implemented this techinque for the offensive agent, as the defensive agent
+# needs the position of the enemies to make decisions, which is not available in the
+# unless the enmies are close-by. Thus, the default defensive agent was used.
+#
+# Reflections:
+# The agent does traverse well to the food but wasn't able to avoid the ghosts and
+# return to the base with many food. So often we would end up with a tie game, or even
+# lose when playing against A*. For future improvements, we would like to trials-and-errors
+# different features and weights, or even try to combine it with different algorithms 
+# such as A* or MCTS to see if we can get better results.
 
 import random, time
 import contest.util as util
